@@ -1358,8 +1358,8 @@ static int imx258_probe(struct i2c_client *client)
 
 	/* Check module identity */
 	ret = imx258_identify_module(imx258);
-	if (ret)
-		goto error_identify;
+	//if (ret)
+		//goto error_identify;
 
 	/* Set default mode to max resolution */
 	imx258->cur_mode = &supported_modes[0];
