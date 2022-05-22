@@ -896,6 +896,7 @@
 		clock-names = "xvclk";
 
 		vif-supply = <&vcc1v8_dvp>;
+		i2c-supply = <&vcca1v8_codec>;
 		/*XXX: also depends on vcca1v8_codec for I2C bus power (currently always on) */
 
 		reset-gpios = <&gpio1 RK_PA0 GPIO_ACTIVE_LOW>;
