@@ -15,39 +15,34 @@
 #define IMX258_REG_VALUE_16BIT		2
 
 #define IMX258_REG_MODE_SELECT		0x0100
-#define IMX258_MODE_STANDBY		0x00
+#define IMX258_MODE_STANDBY			0x00
 #define IMX258_MODE_STREAMING		0x01
 
 /* Chip ID */
-#define IMX258_REG_CHIP_ID		0x0016
-#define IMX258_CHIP_ID			0x0258
+#define IMX258_REG_CHIP_ID			0x0016
+#define IMX258_CHIP_ID				0x0258
 
 /* V_TIMING internal */
-#define IMX258_VTS_30FPS		0x0c50
-#define IMX258_VTS_30FPS_2K		0x0638
+#define IMX258_VTS_30FPS			0x0c50
+#define IMX258_VTS_30FPS_2K			0x0638
 #define IMX258_VTS_30FPS_VGA		0x034c
-#define IMX258_VTS_MAX			0xffff
-
-/*Frame Length Line*/
-#define IMX258_FLL_MIN			0x08a6
-#define IMX258_FLL_MAX			0xffff
-#define IMX258_FLL_STEP			1
-#define IMX258_FLL_DEFAULT		0x0c98
+#define IMX258_VTS_MAX				0xffff
 
 /* HBLANK control - read only */
-#define IMX258_PPL_DEFAULT		5352
+#define IMX258_PPL_DEFAULT			5352
 
 /* Exposure control */
-#define IMX258_REG_EXPOSURE		0x0202
-#define IMX258_EXPOSURE_MIN		4
+#define IMX258_REG_EXPOSURE			0x0202
+#define IMX258_EXPOSURE_OFFSET		10
+#define IMX258_EXPOSURE_MIN			4
 #define IMX258_EXPOSURE_STEP		1
 #define IMX258_EXPOSURE_DEFAULT		0x640
-#define IMX258_EXPOSURE_MAX		65535
+#define IMX258_EXPOSURE_MAX			(IMX258_VTS_MAX - IMX258_EXPOSURE_OFFSET)
 
 /* Analog gain control */
 #define IMX258_REG_ANALOG_GAIN		0x0204
-#define IMX258_ANA_GAIN_MIN		0
-#define IMX258_ANA_GAIN_MAX		480
+#define IMX258_ANA_GAIN_MIN			0
+#define IMX258_ANA_GAIN_MAX			480
 #define IMX258_ANA_GAIN_STEP		1
 #define IMX258_ANA_GAIN_DEFAULT		0x0
 
@@ -62,8 +57,8 @@
 #define IMX258_DGTL_GAIN_STEP		1
 
 /* HDR control */
-#define IMX258_REG_HDR			0x0220
-#define IMX258_HDR_ON			BIT(0)
+#define IMX258_REG_HDR				0x0220
+#define IMX258_HDR_ON				BIT(0)
 #define IMX258_REG_HDR_RATIO		0x0222
 #define IMX258_HDR_RATIO_MIN		0
 #define IMX258_HDR_RATIO_MAX		5
@@ -74,8 +69,8 @@
 #define IMX258_REG_TEST_PATTERN		0x0600
 
 /* Orientation */
-#define REG_MIRROR_FLIP_CONTROL		0x0101
-#define REG_CONFIG_MIRROR_FLIP		0x00
+#define REG_MIRROR_FLIP_CONTROL			0x0101
+#define REG_CONFIG_MIRROR_FLIP			0x00
 #define REG_CONFIG_FLIP_TEST_PATTERN	0x00
 
 /* Input clock frequency in Hz */
@@ -83,7 +78,7 @@
 #define IMX258_INPUT_CLOCK_FREQ		24000000
 #define IMX258_INPUT_CLOCK_FREQ_MAX	24000000
 
-#define IMX258_MBUS_FORMAT		MEDIA_BUS_FMT_SRGGB10_1X10
+#define IMX258_MBUS_FORMAT MEDIA_BUS_FMT_SRGGB10_1X10
 
 /* regs */
 #define PLL_MULT_DRIV                  0x0310
@@ -468,7 +463,7 @@ static const struct imx258_reg mode_4208x3120_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 4208),
 	REG16(Y_OUT_SIZE, 3120),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 3184),
 };
 
@@ -498,7 +493,7 @@ static const struct imx258_reg mode_4032x3024_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 4032),
 	REG16(Y_OUT_SIZE, 3024),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 3184),
 };
 
@@ -528,7 +523,7 @@ static const struct imx258_reg mode_2104_1560_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 2104),
 	REG16(Y_OUT_SIZE, 1560),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 1582),
 };
 
@@ -558,7 +553,7 @@ static const struct imx258_reg mode_1048_780_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 1048),
 	REG16(Y_OUT_SIZE, 780),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 834),
 };
 
@@ -850,12 +845,32 @@ static int imx258_update_digital_gain(struct imx258 *imx258, u32 len, u32 val)
 	return 0;
 }
 
+static void imx258_adjust_exposure_range(struct imx258 *imx258)
+{
+	int exposure_max, exposure_def;
+
+	/* Honour the VBLANK limits when setting exposure. */
+	exposure_max = imx258->cur_mode->height + imx258->vblank->val -
+		       IMX258_EXPOSURE_OFFSET;
+	exposure_def = min(exposure_max, imx258->exposure->val);
+	__v4l2_ctrl_modify_range(imx258->exposure, imx258->exposure->minimum,
+				 exposure_max, imx258->exposure->step,
+				 exposure_def);
+}
+
 static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx258 *imx258 =
 		container_of(ctrl->handler, struct imx258, ctrl_handler);
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	int ret = 0;
+
+	/*
+	 * The VBLANK control may change the limits of usable exposure, so check
+	 * and adjust if necessary.
+	 */
+	if (ctrl->id == V4L2_CID_VBLANK)
+		imx258_adjust_exposure_range(imx258);
 
 	/*
 	 * Applying V4L2 control value only happens
@@ -1004,7 +1019,6 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 
 	mutex_lock(&imx258->mutex);
 
-	/* Only one raw bayer(GBRG) order is supported */
 	fmt->format.code = IMX258_MBUS_FORMAT;
 
 	mode = v4l2_find_nearest_size(supported_modes,
@@ -1355,7 +1369,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 	int ret;
 
 	ctrl_hdlr = &imx258->ctrl_handler;
-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
+	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
 	if (ret)
 		return ret;
 
@@ -1476,14 +1490,6 @@ static int imx258_probe(struct i2c_client *client)
 	// but we now just configure the clock to expected value before power on
 	// if possible
 
-	/*
-	 * Check that the device is mounted upside down. The driver only
-	 * supports a single pixel order right now.
-	 */
-	ret = device_property_read_u32(&client->dev, "rotation", &val);
-	if (ret || val != 180)
-		return -EINVAL;
-
 	for (i = 0; i < IMX258_SUPPLY_COUNT; i++)
 		imx258->supplies[i].supply = imx258_supply_names[i];
 	ret = devm_regulator_bulk_get(&client->dev,
@@ -1503,6 +1509,14 @@ static int imx258_probe(struct i2c_client *client)
 						    GPIOD_OUT_HIGH);
 	if (IS_ERR(imx258->reset_gpio))
 		return PTR_ERR(imx258->reset_gpio);
+
+	/*
+	 * Check that the device is mounted upside down. The driver only
+	 * supports a single pixel order right now.
+	 */
+	ret = device_property_read_u32(&client->dev, "rotation", &val);
+	if (ret || val != 180)
+		return -EINVAL;
 
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&imx258->sd, client, &imx258_subdev_ops);
