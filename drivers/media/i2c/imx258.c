@@ -65,6 +65,10 @@
 #define IMX258_HDR_RATIO_STEP		1
 #define IMX258_HDR_RATIO_DEFAULT	0x0
 
+/* Long exposure multiplier */
+#define IMX258_LONG_EXP_SHIFT_MAX	7
+#define IMX258_LONG_EXP_SHIFT_REG	0x3002
+
 /* Test Pattern Control */
 #define IMX258_REG_TEST_PATTERN		0x0600
 
@@ -135,6 +139,8 @@
 #define PLL_IOP_MPY                    0x030e
 #define REQ_LINK_BIT_RATE_MBPS_H       0x0820
 #define REQ_LINK_BIT_RATE_MBPS_L       0x0822
+#define IMX258_REG_VTS					0x0340
+
 
 #define REG8(a, v) { a, v }
 #define REG16(a, v) { a, ((v) >> 8) & 0xff }, { (a) + 1, (v) & 0xff }
@@ -734,12 +740,16 @@ struct imx258 {
 	struct media_pad pad;
 
 	struct v4l2_ctrl_handler ctrl_handler;
+
 	/* V4L2 Controls */
 	struct v4l2_ctrl *link_freq;
 	struct v4l2_ctrl *pixel_rate;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *hblank;
 	struct v4l2_ctrl *exposure;
+
+	/* Current long exposure factor in use. Set through V4L2_CID_VBLANK */
+	unsigned int long_exp_shift;
 
 	struct gpio_desc *pwdn_gpio;
 	struct gpio_desc *reset_gpio;
@@ -903,6 +913,26 @@ static void imx258_adjust_exposure_range(struct imx258 *imx258)
 				 exposure_def);
 }
 
+static int imx258_set_frame_length(struct imx258 *imx258, unsigned int val)
+{
+	int ret;
+
+	imx258->long_exp_shift = 0;
+
+	while (val > IMX258_VTS_MAX) {
+		imx258->long_exp_shift++;
+		val >>= 1;
+	}
+
+	ret = imx258_write_reg(imx258, IMX258_REG_VTS,
+			       IMX258_REG_VALUE_16BIT, val);
+	if (ret)
+		return ret;
+
+	return imx258_write_reg(imx258, IMX258_LONG_EXP_SHIFT_REG,
+				IMX258_REG_VALUE_08BIT, imx258->long_exp_shift);
+}
+
 static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx258 *imx258 =
@@ -933,7 +963,7 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_EXPOSURE:
 		ret = imx258_write_reg(imx258, IMX258_REG_EXPOSURE,
 				IMX258_REG_VALUE_16BIT,
-				ctrl->val);
+				ctrl->val >> imx258->long_exp_shift);
 		break;
 	case V4L2_CID_DIGITAL_GAIN:
 		ret = imx258_update_digital_gain(imx258, IMX258_REG_VALUE_16BIT,
@@ -963,6 +993,13 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 					       IMX258_REG_VALUE_08BIT,
 					       BIT(IMX258_HDR_RATIO_MAX));
 		}
+		break;
+	case V4L2_CID_VBLANK:
+		ret = imx258_write_reg(imx258, IMX258_REG_VTS,
+				       IMX258_REG_VALUE_16BIT,
+				       imx258->cur_mode->height + ctrl->val);
+		ret = imx258_set_frame_length(imx258,
+					      imx258->cur_mode->height + ctrl->val);
 		break;
 	default:
 		dev_info(&client->dev,
@@ -1087,8 +1124,9 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 			     imx258->cur_mode->height;
 		__v4l2_ctrl_modify_range(
 			imx258->vblank, vblank_min,
-			IMX258_VTS_MAX - imx258->cur_mode->height, 1,
-			vblank_def);
+			((1 << IMX258_LONG_EXP_SHIFT_MAX) * IMX258_VTS_MAX) -
+						imx258->cur_mode->height,
+			1, vblank_def);
 		__v4l2_ctrl_s_ctrl(imx258->vblank, vblank_def);
 		h_blank =
 			link_freq_configs[mode->link_freq_index].pixels_per_line
@@ -1501,9 +1539,6 @@ static int imx258_init_controls(struct imx258 *imx258)
 				vblank_min,
 				IMX258_VTS_MAX - imx258->cur_mode->height, 1,
 				vblank_def);
-
-	if (imx258->vblank)
-		imx258->vblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	imx258->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops, V4L2_CID_HBLANK,
