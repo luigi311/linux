@@ -18,6 +18,8 @@
 #define IMX258_MODE_STANDBY			0x00
 #define IMX258_MODE_STREAMING		0x01
 
+#define IMX258_REG_RESET		0x0103
+
 /* Chip ID */
 #define IMX258_REG_CHIP_ID			0x0016
 #define IMX258_CHIP_ID				0x0258
@@ -1199,6 +1201,14 @@ static int imx258_start_streaming(struct imx258 *imx258)
 	const struct imx258_reg_list *reg_list;
 	int ret, link_freq_index;
 
+	ret = imx258_write_reg(imx258, IMX258_REG_RESET, IMX258_REG_VALUE_08BIT,
+			       0x01);
+	if (ret) {
+		dev_err(&client->dev, "%s failed to reset sensor\n", __func__);
+		return ret;
+	}
+	usleep_range(10000, 15000);
+
 	/* Common registers */
 	ret = imx258_write_regs(imx258, common_regs, ARRAY_SIZE(common_regs));
 	if (ret) {
@@ -1499,6 +1509,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	struct v4l2_ctrl_handler *ctrl_hdlr;
+
 	s64 vblank_def;
 	s64 vblank_min;
 	s64 pixel_rate_min;
@@ -1506,7 +1517,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 	int ret;
 
 	ctrl_hdlr = &imx258->ctrl_handler;
-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
+	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 12);
 	if (ret)
 		return ret;
 
@@ -1539,7 +1550,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 				vblank_min,
 				IMX258_VTS_MAX - imx258->cur_mode->height, 1,
 				vblank_def);
-
+	
 	imx258->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops, V4L2_CID_HBLANK,
 				IMX258_PPL_DEFAULT - imx258->cur_mode->width,
@@ -1645,9 +1656,9 @@ static int imx258_probe(struct i2c_client *client)
 		return PTR_ERR(imx258->reset_gpio);
 
 	/*
-	 * Check that the device is mounted upside down. The driver only
-	 * supports a single pixel order right now.
-	 */
+        * Check that the device is mounted upside down. The driver only
+        * supports a single pixel order right now.
+	*/
 	ret = device_property_read_u32(&client->dev, "rotation", &val);
 	if (ret || val != 180)
 		return -EINVAL;
