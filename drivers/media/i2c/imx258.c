@@ -1621,6 +1621,10 @@ static int imx258_init_controls(struct imx258 *imx258)
 	ret = v4l2_fwnode_device_parse(&client->dev, &props);
 	if (ret)
 		goto error;
+	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx258_ctrl_ops,
+					      &props);
+	if (ret)
+		goto error;
 
 	imx258->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
 					  V4L2_CID_HFLIP, 0, 1, 1,
