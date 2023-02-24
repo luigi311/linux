@@ -887,6 +887,9 @@ struct imx258 {
 	/* Current long exposure factor in use. Set through V4L2_CID_VBLANK */
 	unsigned int long_exp_shift;
 
+	struct gpio_desc *pwdn_gpio;
+	struct gpio_desc *reset_gpio;
+
 	/* Current mode */
 	const struct imx258_mode *cur_mode;
 
@@ -1392,8 +1395,8 @@ static int imx258_start_streaming(struct imx258 *imx258)
 
 	ret = imx258_write_reg(imx258, IMX258_CLK_BLANK_STOP,
 			       IMX258_REG_VALUE_08BIT,
-			       imx258->csi2_flags & V4L2_MBUS_CSI2_CONTINUOUS_CLOCK ?
-			       0 : 1);
+			       imx258->csi2_flags & V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK ?
+			       1 : 0);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set clock lane mode\n", __func__);
 		return ret;
@@ -1451,13 +1454,27 @@ static int imx258_power_on(struct device *dev)
 		return ret;
 	}
 
+	mdelay(20);
+
+	gpiod_set_value_cansleep(imx258->pwdn_gpio, 0);
+
+	mdelay(5);
+
 	ret = clk_prepare_enable(imx258->clk);
 	if (ret) {
 		dev_err(dev, "failed to enable clock\n");
+		gpiod_set_value_cansleep(imx258->pwdn_gpio, 1);
 		regulator_bulk_disable(IMX258_NUM_SUPPLIES, imx258->supplies);
+		return ret;
 	}
 
-	return ret;
+	usleep_range(1000, 2000);
+
+	gpiod_set_value_cansleep(imx258->reset_gpio, 0);
+
+	usleep_range(400, 500);
+
+	return 0;
 }
 
 static int imx258_power_off(struct device *dev)
@@ -1466,6 +1483,10 @@ static int imx258_power_off(struct device *dev)
 	struct imx258 *imx258 = to_imx258(sd);
 
 	clk_disable_unprepare(imx258->clk);
+
+	gpiod_set_value_cansleep(imx258->reset_gpio, 1);
+	gpiod_set_value_cansleep(imx258->pwdn_gpio, 1);
+
 	regulator_bulk_disable(IMX258_NUM_SUPPLIES, imx258->supplies);
 
 	return 0;
@@ -1824,6 +1845,18 @@ static int imx258_probe(struct i2c_client *client)
 		imx258->variant_cfg =
 			(const struct imx258_variant_cfg *)match->data;
 
+	/* request optional power down pin */
+	imx258->pwdn_gpio = devm_gpiod_get_optional(&client->dev, "powerdown",
+						    GPIOD_OUT_HIGH);
+	if (IS_ERR(imx258->pwdn_gpio))
+		return PTR_ERR(imx258->pwdn_gpio);
+
+	/* request optional reset pin */
+	imx258->reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
+						    GPIOD_OUT_HIGH);
+	if (IS_ERR(imx258->reset_gpio))
+		return PTR_ERR(imx258->reset_gpio);
+
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&imx258->sd, client, &imx258_subdev_ops);
 
@@ -1881,7 +1914,7 @@ error_endpoint_poweron:
 	return ret;
 }
 
-static int imx258_remove(struct i2c_client *client)
+static void imx258_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct imx258 *imx258 = to_imx258(sd);
@@ -1894,8 +1927,6 @@ static int imx258_remove(struct i2c_client *client)
 	if (!pm_runtime_status_suspended(&client->dev))
 		imx258_power_off(&client->dev);
 	pm_runtime_set_suspended(&client->dev);
-
-	return 0;
 }
 
 static const struct dev_pm_ops imx258_pm_ops = {
