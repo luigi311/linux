@@ -1144,3 +1144,285 @@
 &usb_host1_ohci {
 	status = "okay";
 };
+
+
+// ============================================================================
+
+/* USB 3.0 */
+
+&usbdp_phy0 {
+	orientation-switch;
+	mode-switch;
+	sbu1-dc-gpios = <&gpio4 RK_PA6 GPIO_ACTIVE_HIGH>;
+	sbu2-dc-gpios = <&gpio4 RK_PA7 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		usbdp_phy0_orientation_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_orien_sw>;
+		};
+
+		usbdp_phy0_dp_altmode_mux: endpoint@1 {
+			reg = <1>;
+			remote-endpoint = <&dp_altmode_mux>;
+		};
+	};
+};
+
+&usbdp_phy0_u3 {
+	status = "okay";
+};
+
+&usbdrd3_0 {
+	status = "okay";
+};
+
+&usbdrd_dwc3_0 {
+	dr_mode = "otg";
+	usb-role-switch;
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		dwc3_0_role_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_role_sw>;
+		};
+	};
+};
+
+&u2phy0 {
+	status = "okay";
+};
+
+&u2phy0_otg {
+	status = "okay";
+};
+
+&usbdp_phy1 {
+	//rockchip,dp-lane-mux = <2 3>;
+	status = "okay";
+};
+
+&usbdp_phy1_u3 {
+	status = "okay";
+};
+
+&usbdrd3_1 {
+	status = "okay";
+};
+
+&u2phy1 {
+	status = "okay";
+};
+
+&u2phy1_otg {
+	phy-supply = <&vcc5v0_host>;
+	status = "okay";
+};
+
+&pinctrl {
+	usb-typec {
+		usbc0_int: usbc0-int {
+			rockchip,pins = <3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
+		typec5v_pwren: typec5v-pwren {
+			rockchip,pins = <0 RK_PC5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+/ {
+	vbus5v0_typec: vbus5v0-typec-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vbus5v0_typec";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		enable-active-high;
+		gpio = <&gpio0 RK_PC5 GPIO_ACTIVE_HIGH>;
+		vin-supply = <&vcc5v0_usb>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&typec5v_pwren>;
+	};
+};
+
+&i2c2 {
+	usbc0: usb-typec@4e {
+		compatible = "hynetek,husb311";
+		reg = <0x4e>;
+		interrupt-parent = <&gpio3>;
+		interrupts = <RK_PB4 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbc0_int>;
+		vbus-supply = <&vbus5v0_typec>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				usbc0_role_sw: endpoint {
+					remote-endpoint = <&dwc3_0_role_switch>;
+				};
+			};
+		};
+
+		usb_con: connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			data-role = "dual";
+			power-role = "dual";
+			try-power-role = "source";
+			op-sink-microwatt = <1000000>;
+			sink-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
+			source-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
+
+			/*
+			altmodes {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				altmode@0 {
+					reg = <0>;
+					svid = <0xff01>;
+					vdo = <0xffffffff>;
+				};
+			};
+			*/
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					usbc0_orien_sw: endpoint {
+						remote-endpoint = <&usbdp_phy0_orientation_switch>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					dp_altmode_mux: endpoint {
+						remote-endpoint = <&usbdp_phy0_dp_altmode_mux>;
+					};
+				};
+			};
+		};
+	};
+};
+
+/* BT codec */
+&i2s2_2ch {
+	status = "okay";
+};
+
+/* bluetooth */
+
+/*
+ * - chip?
+&uart8 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart8m1_xfer &uart8m1_ctsn>;
+
+	bluetooth {
+		// HOST_WAKE_BT_H GPIO3_A1_u
+		// BT_WAKE_HOST_H GPIO3_A0_u
+	};
+};
+*/
+
+
+/*
+ * - wifi/wifi pcie does not show up
+ *   - 32khz clock to wifi from rtc
+ * - type-c port may not work in both orientations
+ */
+/*
+ * * LED
+ *   - Power_LED_EN_H - GPIO3_B7_d
+ *     - work led
+ * * buttons
+ *   - power on (both PMICs)
+ *   - maskrom
+ * * debug uart2
+ * * rtc - GPIO0_D4_u (int_l)
+ *   - I2C2_SCL_M0
+ *   - 32KOUT_WIFI
+ *   - RTC_32K_IN
+ *   - addr 0xa2
+ * * emmc - gpio2_d/a
+ *   - VCC_1V8_S0  io
+ *   - VCC_3V3_S0 power
+ * * sd card
+ *   - GPIO4_D
+ *   - VCCIO_SD_S0
+ *   - VCC_3V3_S3
+ *   - carddet GPIO0_A4_u
+ * * saradc
+ *   - 0: BOOT_SARADC_IN0 - pulled up to 1.8V, button to GND to enter maskrom
+ *   - 1: adc ladder keys v+ v- menu esc
+ *   - 3: microphone keys for headset
+ *   - 5: evb hw id
+ * * gmac0
+ *   - ETH0_REFCLKO_25M
+ *   - GMAC0_RSTn_L - GPIO4_B3_u
+ *   - RTL8211F-CG
+ *   - VCC_3V3_S0
+ * * gmac1
+ *   - RTL8111HS
+ *   - PCIE30X1_1RC
+ *   - pcie mux2 combo
+ *   - VCC_3V3_S0
+ * * wifi
+ *   - WIFI_WAKE_HOST_H - GPIO3_A7_u
+ *     - not hooked
+ *   - WIFI_REG_ON_H - GPIO3_B1_d
+ *   - PCIe30x1_0 - 1Lane(RC)--2(1L0) - mux1
+ *   - VCC_3V3_S0 = VBAT
+ *   - VCC_1V8_S0 - vccio
+ * * 1x sata port (second one is unused)
+ *   - combo mux0 are muxed to sata0 host
+ *   - SATA30_0
+ * * 2x usb 2.0 host only ports
+ * * 1x usb 3.0 host only port
+ *   - ctl1 = just usb ss / usb2_otg1
+ *
+ * * 1x typec port 1x usb30
+ *   - ctl0 = alt-dp (marked as download port)
+ *     - HUSB311
+ *       - I2C2_SCL_M0
+ *       - CC_INT_L GPIO3_B4_u
+ *     - typec power supply
+ *       - GPIO0_C5_u - TYPEC5V_PWREN
+ * * 1x pcie3 4x
+ *   - PCIE30x4_PWREN_H - GPIO3_C3_d
+ * * codec ES8388
+ *   - i2c7 m0
+ *     - VCC_1V8_S0
+ *   - i2s0
+ *   - AVCC_1V8_CODEC_S0
+ *   - VCC_3V3_S0
+ *   - internal mic
+ *   - jack input/output
+ *     - GPIO1_D2_d PHONE_CTL
+ *     - GPIO1_D5_d HP_DET_L
+ *     - saradc
+ *   - 2x power amps
+ *     - GPIO1_D3_d SPK_CTL_H
+ * - bt
+ *   - uart8 m1 + rts/cts
+ *   - bt_reg_on GPIO3_A6_d
+ *   - HOST_WAKE_BT_H GPIO3_A1_u
+ *   - BT_WAKE_HOST_H GPIO3_A0_u
+ *   - i2s2 sclk lrck sdo sdi
+ *
+ * - FAN: PWM5_M1_FAN
+ */
