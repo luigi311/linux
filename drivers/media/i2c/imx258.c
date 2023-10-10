@@ -16,39 +16,36 @@
 #define IMX258_REG_VALUE_16BIT		2
 
 #define IMX258_REG_MODE_SELECT		0x0100
-#define IMX258_MODE_STANDBY		0x00
+#define IMX258_MODE_STANDBY			0x00
 #define IMX258_MODE_STREAMING		0x01
 
+#define IMX258_REG_RESET		0x0103
+
 /* Chip ID */
-#define IMX258_REG_CHIP_ID		0x0016
-#define IMX258_CHIP_ID			0x0258
+#define IMX258_REG_CHIP_ID			0x0016
+#define IMX258_CHIP_ID				0x0258
 
 /* V_TIMING internal */
-#define IMX258_VTS_30FPS		0x0c50
-#define IMX258_VTS_30FPS_2K		0x0638
+#define IMX258_VTS_30FPS			0x0c50
+#define IMX258_VTS_30FPS_2K			0x0638
 #define IMX258_VTS_30FPS_VGA		0x034c
-#define IMX258_VTS_MAX			0xffff
-
-/*Frame Length Line*/
-#define IMX258_FLL_MIN			0x08a6
-#define IMX258_FLL_MAX			0xffff
-#define IMX258_FLL_STEP			1
-#define IMX258_FLL_DEFAULT		0x0c98
+#define IMX258_VTS_MAX				65525
 
 /* HBLANK control - read only */
-#define IMX258_PPL_DEFAULT		5352
+#define IMX258_PPL_DEFAULT			5352
 
 /* Exposure control */
-#define IMX258_REG_EXPOSURE		0x0202
-#define IMX258_EXPOSURE_MIN		4
+#define IMX258_REG_EXPOSURE			0x0202
+#define IMX258_EXPOSURE_OFFSET		10
+#define IMX258_EXPOSURE_MIN			4
 #define IMX258_EXPOSURE_STEP		1
 #define IMX258_EXPOSURE_DEFAULT		0x640
-#define IMX258_EXPOSURE_MAX		65535
+#define IMX258_EXPOSURE_MAX			(IMX258_VTS_MAX - IMX258_EXPOSURE_OFFSET)
 
 /* Analog gain control */
 #define IMX258_REG_ANALOG_GAIN		0x0204
-#define IMX258_ANA_GAIN_MIN		0
-#define IMX258_ANA_GAIN_MAX		480
+#define IMX258_ANA_GAIN_MIN			0
+#define IMX258_ANA_GAIN_MAX			480
 #define IMX258_ANA_GAIN_STEP		1
 #define IMX258_ANA_GAIN_DEFAULT		0x0
 
@@ -63,20 +60,25 @@
 #define IMX258_DGTL_GAIN_STEP		1
 
 /* HDR control */
-#define IMX258_REG_HDR			0x0220
-#define IMX258_HDR_ON			BIT(0)
+#define IMX258_REG_HDR				0x0220
+#define IMX258_HDR_ON				BIT(0)
 #define IMX258_REG_HDR_RATIO		0x0222
 #define IMX258_HDR_RATIO_MIN		0
 #define IMX258_HDR_RATIO_MAX		5
 #define IMX258_HDR_RATIO_STEP		1
 #define IMX258_HDR_RATIO_DEFAULT	0x0
 
+/* Long exposure multiplier */
+#define IMX258_LONG_EXP_SHIFT_MAX	7
+#define IMX258_LONG_EXP_SHIFT_REG	0x3002
+
 /* Test Pattern Control */
 #define IMX258_REG_TEST_PATTERN		0x0600
 
 /* Orientation */
-#define REG_MIRROR_FLIP_CONTROL		0x0101
-#define REG_CONFIG_MIRROR_FLIP		0x00
+#define REG_MIRROR_FLIP_CONTROL			0x0101
+#define REG_CONFIG_MIRROR_HFLIP			0x01
+#define REG_CONFIG_MIRROR_VFLIP			0x02
 #define REG_CONFIG_FLIP_TEST_PATTERN	0x00
 
 /* Input clock frequency in Hz */
@@ -84,7 +86,13 @@
 #define IMX258_INPUT_CLOCK_FREQ		24000000
 #define IMX258_INPUT_CLOCK_FREQ_MAX	24000000
 
-#define IMX258_MBUS_FORMAT		MEDIA_BUS_FMT_SRGGB10_1X10
+/* IMX258 native and active pixel array size. */
+#define IMX258_NATIVE_WIDTH			4224U
+#define IMX258_NATIVE_HEIGHT		3192U
+#define IMX258_PIXEL_ARRAY_LEFT		8U
+#define IMX258_PIXEL_ARRAY_TOP		16U
+#define IMX258_PIXEL_ARRAY_WIDTH	4208U
+#define IMX258_PIXEL_ARRAY_HEIGHT	3120U
 
 /* regs */
 #define PLL_MULT_DRIV                  0x0310
@@ -133,6 +141,8 @@
 #define PLL_IOP_MPY                    0x030e
 #define REQ_LINK_BIT_RATE_MBPS_H       0x0820
 #define REQ_LINK_BIT_RATE_MBPS_L       0x0822
+#define IMX258_REG_VTS					0x0340
+
 
 #define REG8(a, v) { a, v }
 #define REG16(a, v) { a, ((v) >> 8) & 0xff }, { (a) + 1, (v) & 0xff }
@@ -168,8 +178,12 @@ struct imx258_mode {
 
 	/* Index of Link frequency config to be used */
 	u32 link_freq_index;
+
 	/* Default register values */
 	struct imx258_reg_list reg_list;
+
+	/* Analog crop rectangle. */
+	struct v4l2_rect crop;
 };
 
 static const struct imx258_reg common_regs[] = {
@@ -178,8 +192,8 @@ static const struct imx258_reg common_regs[] = {
 
 	REG8(0x3051, 0x00),
 
-	REG8(0x3052, 0x00), // extra in mainline
-	REG8(0x4e21, 0x14), // extra in mainline
+	REG8(0x3052, 0x01), // pdaf related
+	REG8(0x4e21, 0x10), // pdaf related
 
 	REG8(0x6b11, 0xcf),
 	REG8(0x7ff0, 0x08),
@@ -203,7 +217,7 @@ static const struct imx258_reg common_regs[] = {
 	REG8(0x7fa8, 0x03),
 	REG8(0x7fa9, 0xfe),
 	REG8(0x7b24, 0x81),
-	REG8(0x7b25, 0x01), // 1 in rk, 0 in mainline
+	REG8(0x7b25, 0x01), // pdaf related
 	REG8(0x6564, 0x07),
 	REG8(0x6b0d, 0x41),
 	REG8(0x653d, 0x04),
@@ -469,7 +483,7 @@ static const struct imx258_reg mode_4208x3120_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 4208),
 	REG16(Y_OUT_SIZE, 3120),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 3184),
 };
 
@@ -499,7 +513,7 @@ static const struct imx258_reg mode_4032x3024_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 4032),
 	REG16(Y_OUT_SIZE, 3024),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 3184),
 };
 
@@ -529,7 +543,7 @@ static const struct imx258_reg mode_2104_1560_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 2104),
 	REG16(Y_OUT_SIZE, 1560),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 1582),
 };
 
@@ -559,8 +573,25 @@ static const struct imx258_reg mode_1048_780_regs[] = {
 	REG8(FORCE_FD_SUM, 0x00),
 	REG16(X_OUT_SIZE, 1048),
 	REG16(Y_OUT_SIZE, 780),
-	REG8(FRM_LENGTH_CTL, 0x01),
+	REG8(FRM_LENGTH_CTL, 0x00),
 	REG16(COARSE_INTEG_TIME, 834),
+};
+
+/*
+ * The supported formats.
+ * This table MUST contain 4 entries per format, to cover the various flip
+ * combinations in the order
+ * - no flip
+ * - h flip
+ * - v flip
+ * - h&v flips
+ */
+static const u32 codes[] = {
+	/* 10-bit modes. */
+	MEDIA_BUS_FMT_SRGGB10_1X10,
+	MEDIA_BUS_FMT_SGRBG10_1X10,
+	MEDIA_BUS_FMT_SGBRG10_1X10,
+	MEDIA_BUS_FMT_SBGGR10_1X10
 };
 
 static const char * const imx258_test_pattern_menu[] = {
@@ -641,6 +672,12 @@ static const struct imx258_mode supported_modes[] = {
 			.regs = mode_4208x3120_regs,
 		},
 		.link_freq_index = IMX258_LINK_FREQ_1224MBPS,
+		.crop = {
+			.left = IMX258_PIXEL_ARRAY_LEFT,
+			.top = IMX258_PIXEL_ARRAY_TOP,
+			.width = 4208,
+			.height = 3120,
+		},
 	},
 	{
 		.width = 4032,
@@ -652,6 +689,12 @@ static const struct imx258_mode supported_modes[] = {
 			.regs = mode_4032x3024_regs,
 		},
 		.link_freq_index = IMX258_LINK_FREQ_1224MBPS,
+		.crop = {
+			.left = IMX258_PIXEL_ARRAY_LEFT,
+			.top = IMX258_PIXEL_ARRAY_TOP,
+			.width = 4208,
+			.height = 3120,
+		},
 	},
 	{
 		.width = 2104,
@@ -663,6 +706,12 @@ static const struct imx258_mode supported_modes[] = {
 			.regs = mode_2104_1560_regs,
 		},
 		.link_freq_index = IMX258_LINK_FREQ_642MBPS,
+		.crop = {
+			.left = IMX258_PIXEL_ARRAY_LEFT,
+			.top = IMX258_PIXEL_ARRAY_TOP,
+			.width = 4208,
+			.height = 3120,
+		},
 	},
 	{
 		.width = 1048,
@@ -674,6 +723,12 @@ static const struct imx258_mode supported_modes[] = {
 			.regs = mode_1048_780_regs,
 		},
 		.link_freq_index = IMX258_LINK_FREQ_642MBPS,
+		.crop = {
+			.left = IMX258_PIXEL_ARRAY_LEFT,
+			.top = IMX258_PIXEL_ARRAY_TOP,
+			.width = 4208,
+			.height = 3120,
+		},
 	},
 };
 
@@ -704,12 +759,18 @@ struct imx258 {
 	struct media_pad pad;
 
 	struct v4l2_ctrl_handler ctrl_handler;
+
 	/* V4L2 Controls */
 	struct v4l2_ctrl *link_freq;
 	struct v4l2_ctrl *pixel_rate;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *hblank;
 	struct v4l2_ctrl *exposure;
+	struct v4l2_ctrl *hflip;
+	struct v4l2_ctrl *vflip;
+
+	/* Current long exposure factor in use. Set through V4L2_CID_VBLANK */
+	unsigned int long_exp_shift;
 
 	struct gpio_desc *pwdn_gpio;
 	struct gpio_desc *reset_gpio;
@@ -809,17 +870,40 @@ static int imx258_write_regs(struct imx258 *imx258,
 	return 0;
 }
 
+/* Get bayer order based on flip setting. */
+static u32 imx258_get_format_code(struct imx258 *imx258)
+{
+	unsigned int i;
+
+	lockdep_assert_held(&imx258->mutex);
+
+	i = (imx258->vflip->val ? 2 : 0) |
+	    (imx258->hflip->val ? 1 : 0);
+
+	return codes[i];
+}
+
 /* Open sub-device */
 static int imx258_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
+	struct imx258 *imx258 = to_imx258(sd);
 	struct v4l2_mbus_framefmt *try_fmt =
 		v4l2_subdev_get_try_format(sd, fh->state, 0);
+	
+	struct v4l2_rect *try_crop;
 
 	/* Initialize try_fmt */
 	try_fmt->width = supported_modes[0].width;
 	try_fmt->height = supported_modes[0].height;
-	try_fmt->code = IMX258_MBUS_FORMAT;
+	try_fmt->code = imx258_get_format_code(imx258);
 	try_fmt->field = V4L2_FIELD_NONE;
+
+	/* Initialize try_crop */
+	try_crop = v4l2_subdev_get_try_crop(sd, fh->state, 0);
+	try_crop->left = IMX258_PIXEL_ARRAY_LEFT;
+	try_crop->top = IMX258_PIXEL_ARRAY_TOP;
+	try_crop->width = IMX258_PIXEL_ARRAY_WIDTH;
+	try_crop->height = IMX258_PIXEL_ARRAY_HEIGHT;
 
 	return 0;
 }
@@ -851,12 +935,52 @@ static int imx258_update_digital_gain(struct imx258 *imx258, u32 len, u32 val)
 	return 0;
 }
 
+static void imx258_adjust_exposure_range(struct imx258 *imx258)
+{
+	int exposure_max, exposure_def;
+
+	/* Honour the VBLANK limits when setting exposure. */
+	exposure_max = imx258->cur_mode->height + imx258->vblank->val -
+		       IMX258_EXPOSURE_OFFSET;
+	exposure_def = min(exposure_max, imx258->exposure->val);
+	__v4l2_ctrl_modify_range(imx258->exposure, imx258->exposure->minimum,
+				 exposure_max, imx258->exposure->step,
+				 exposure_def);
+}
+
+static int imx258_set_frame_length(struct imx258 *imx258, unsigned int val)
+{
+	int ret;
+
+	imx258->long_exp_shift = 0;
+
+	while (val > IMX258_VTS_MAX) {
+		imx258->long_exp_shift++;
+		val >>= 1;
+	}
+
+	ret = imx258_write_reg(imx258, IMX258_REG_VTS,
+			       IMX258_REG_VALUE_16BIT, val);
+	if (ret)
+		return ret;
+
+	return imx258_write_reg(imx258, IMX258_LONG_EXP_SHIFT_REG,
+				IMX258_REG_VALUE_08BIT, imx258->long_exp_shift);
+}
+
 static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx258 *imx258 =
 		container_of(ctrl->handler, struct imx258, ctrl_handler);
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	int ret = 0;
+
+	/*
+	 * The VBLANK control may change the limits of usable exposure, so check
+	 * and adjust if necessary.
+	 */
+	if (ctrl->id == V4L2_CID_VBLANK)
+		imx258_adjust_exposure_range(imx258);
 
 	/*
 	 * Applying V4L2 control value only happens
@@ -874,7 +998,7 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_EXPOSURE:
 		ret = imx258_write_reg(imx258, IMX258_REG_EXPOSURE,
 				IMX258_REG_VALUE_16BIT,
-				ctrl->val);
+				ctrl->val >> imx258->long_exp_shift);
 		break;
 	case V4L2_CID_DIGITAL_GAIN:
 		ret = imx258_update_digital_gain(imx258, IMX258_REG_VALUE_16BIT,
@@ -884,10 +1008,6 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 		ret = imx258_write_reg(imx258, IMX258_REG_TEST_PATTERN,
 				IMX258_REG_VALUE_16BIT,
 				ctrl->val);
-		ret = imx258_write_reg(imx258, REG_MIRROR_FLIP_CONTROL,
-				IMX258_REG_VALUE_08BIT,
-				!ctrl->val ? REG_CONFIG_MIRROR_FLIP :
-				REG_CONFIG_FLIP_TEST_PATTERN);
 		break;
 	case V4L2_CID_WIDE_DYNAMIC_RANGE:
 		if (!ctrl->val) {
@@ -904,6 +1024,22 @@ static int imx258_set_ctrl(struct v4l2_ctrl *ctrl)
 					       IMX258_REG_VALUE_08BIT,
 					       BIT(IMX258_HDR_RATIO_MAX));
 		}
+		break;
+	case V4L2_CID_VBLANK:
+		ret = imx258_write_reg(imx258, IMX258_REG_VTS,
+				       IMX258_REG_VALUE_16BIT,
+				       imx258->cur_mode->height + ctrl->val);
+		ret = imx258_set_frame_length(imx258,
+					      imx258->cur_mode->height + ctrl->val);
+		break;
+	case V4L2_CID_VFLIP:
+	case V4L2_CID_HFLIP:
+		ret = imx258_write_reg(imx258, REG_MIRROR_FLIP_CONTROL,
+				       IMX258_REG_VALUE_08BIT,
+				       (imx258->hflip->val ?
+					REG_CONFIG_MIRROR_HFLIP : 0) |
+				       (imx258->vflip->val ?
+					REG_CONFIG_MIRROR_VFLIP : 0));
 		break;
 	default:
 		dev_info(&client->dev,
@@ -926,11 +1062,13 @@ static int imx258_enum_mbus_code(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_mbus_code_enum *code)
 {
-	/* Only one bayer order(GRBG) is supported */
+	struct imx258 *imx258 = to_imx258(sd);
+
+	/* Only one bayer format (10 bit) is supported */
 	if (code->index > 0)
 		return -EINVAL;
 
-	code->code = IMX258_MBUS_FORMAT;
+	code->code = imx258_get_format_code(imx258);
 
 	return 0;
 }
@@ -939,10 +1077,11 @@ static int imx258_enum_frame_size(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
+	struct imx258 *imx258 = to_imx258(sd);
 	if (fse->index >= ARRAY_SIZE(supported_modes))
 		return -EINVAL;
 
-	if (fse->code != IMX258_MBUS_FORMAT)
+	if (fse->code != imx258_get_format_code(imx258))
 		return -EINVAL;
 
 	fse->min_width = supported_modes[fse->index].width;
@@ -953,12 +1092,13 @@ static int imx258_enum_frame_size(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static void imx258_update_pad_format(const struct imx258_mode *mode,
+static void imx258_update_pad_format(struct imx258 *imx258,
+				     const struct imx258_mode *mode,
 				     struct v4l2_subdev_format *fmt)
 {
 	fmt->format.width = mode->width;
 	fmt->format.height = mode->height;
-	fmt->format.code = IMX258_MBUS_FORMAT;
+	fmt->format.code = imx258_get_format_code(imx258);
 	fmt->format.field = V4L2_FIELD_NONE;
 }
 
@@ -971,7 +1111,7 @@ static int __imx258_get_pad_format(struct imx258 *imx258,
 							  sd_state,
 							  fmt->pad);
 	else
-		imx258_update_pad_format(imx258->cur_mode, fmt);
+		imx258_update_pad_format(imx258, imx258->cur_mode, fmt);
 
 	return 0;
 }
@@ -1005,13 +1145,12 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 
 	mutex_lock(&imx258->mutex);
 
-	/* Only one raw bayer(GBRG) order is supported */
-	fmt->format.code = IMX258_MBUS_FORMAT;
+	fmt->format.code = imx258_get_format_code(imx258);
 
 	mode = v4l2_find_nearest_size(supported_modes,
 		ARRAY_SIZE(supported_modes), width, height,
 		fmt->format.width, fmt->format.height);
-	imx258_update_pad_format(mode, fmt);
+	imx258_update_pad_format(imx258, mode, fmt);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_get_try_format(sd, sd_state, fmt->pad);
 		*framefmt = fmt->format;
@@ -1029,8 +1168,9 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 			     imx258->cur_mode->height;
 		__v4l2_ctrl_modify_range(
 			imx258->vblank, vblank_min,
-			IMX258_VTS_MAX - imx258->cur_mode->height, 1,
-			vblank_def);
+			((1 << IMX258_LONG_EXP_SHIFT_MAX) * IMX258_VTS_MAX) -
+						imx258->cur_mode->height,
+			1, vblank_def);
 		__v4l2_ctrl_s_ctrl(imx258->vblank, vblank_def);
 		h_blank =
 			link_freq_configs[mode->link_freq_index].pixels_per_line
@@ -1044,12 +1184,72 @@ static int imx258_set_pad_format(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static const struct v4l2_rect *
+__imx258_get_pad_crop(struct imx258 *imx258,
+		      struct v4l2_subdev_state *sd_state,
+		      unsigned int pad, enum v4l2_subdev_format_whence which)
+{
+	switch (which) {
+	case V4L2_SUBDEV_FORMAT_TRY:
+		return v4l2_subdev_get_try_crop(&imx258->sd, sd_state, pad);
+	case V4L2_SUBDEV_FORMAT_ACTIVE:
+		return &imx258->cur_mode->crop;
+	}
+
+	return NULL;
+}
+
+static int imx258_get_selection(struct v4l2_subdev *sd,
+				struct v4l2_subdev_state *sd_state,
+				struct v4l2_subdev_selection *sel)
+{
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP: {
+		struct imx258 *imx258 = to_imx258(sd);
+
+		mutex_lock(&imx258->mutex);
+		sel->r = *__imx258_get_pad_crop(imx258, sd_state, sel->pad,
+						sel->which);
+		mutex_unlock(&imx258->mutex);
+
+		return 0;
+	}
+
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = IMX258_NATIVE_WIDTH;
+		sel->r.height = IMX258_NATIVE_HEIGHT;
+
+		return 0;
+
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+		sel->r.left = IMX258_PIXEL_ARRAY_LEFT;
+		sel->r.top = IMX258_PIXEL_ARRAY_TOP;
+		sel->r.width = IMX258_PIXEL_ARRAY_WIDTH;
+		sel->r.height = IMX258_PIXEL_ARRAY_HEIGHT;
+
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 /* Start streaming */
 static int imx258_start_streaming(struct imx258 *imx258)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	const struct imx258_reg_list *reg_list;
 	int ret, link_freq_index;
+
+	ret = imx258_write_reg(imx258, IMX258_REG_RESET, IMX258_REG_VALUE_08BIT,
+			       0x01);
+	if (ret) {
+		dev_err(&client->dev, "%s failed to reset sensor\n", __func__);
+		return ret;
+	}
+	usleep_range(10000, 15000);
 
 	/* Common registers */
 	ret = imx258_write_regs(imx258, common_regs, ARRAY_SIZE(common_regs));
@@ -1072,15 +1272,6 @@ static int imx258_start_streaming(struct imx258 *imx258)
 	ret = imx258_write_regs(imx258, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set mode\n", __func__);
-		return ret;
-	}
-
-	/* Set Orientation be 180 degree */
-	ret = imx258_write_reg(imx258, REG_MIRROR_FLIP_CONTROL,
-			       IMX258_REG_VALUE_08BIT, REG_CONFIG_MIRROR_FLIP);
-	if (ret) {
-		dev_err(&client->dev, "%s failed to set orientation\n",
-			__func__);
 		return ret;
 	}
 
@@ -1332,6 +1523,8 @@ static const struct v4l2_subdev_pad_ops imx258_pad_ops = {
 	.get_fmt = imx258_get_pad_format,
 	.set_fmt = imx258_set_pad_format,
 	.enum_frame_size = imx258_enum_frame_size,
+	.get_selection = imx258_get_selection,
+
 };
 
 static const struct v4l2_subdev_ops imx258_subdev_ops = {
@@ -1350,7 +1543,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 	struct i2c_client *client = v4l2_get_subdevdata(&imx258->sd);
 	struct v4l2_fwnode_device_properties props;
 	struct v4l2_ctrl_handler *ctrl_hdlr;
-	struct v4l2_ctrl *vflip, *hflip;
+
 	s64 vblank_def;
 	s64 vblank_min;
 	s64 pixel_rate_min;
@@ -1358,7 +1551,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 	int ret;
 
 	ctrl_hdlr = &imx258->ctrl_handler;
-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 13);
+	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 12);
 	if (ret)
 		return ret;
 
@@ -1373,17 +1566,6 @@ static int imx258_init_controls(struct imx258 *imx258)
 
 	if (imx258->link_freq)
 		imx258->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	/* The driver only supports one bayer order and flips by default. */
-	hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
-				  V4L2_CID_HFLIP, 1, 1, 1, 1);
-	if (hflip)
-		hflip->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
-	vflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
-				  V4L2_CID_VFLIP, 1, 1, 1, 1);
-	if (vflip)
-		vflip->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
 	pixel_rate_min = link_freq_to_pixel_rate(
@@ -1402,10 +1584,7 @@ static int imx258_init_controls(struct imx258 *imx258)
 				vblank_min,
 				IMX258_VTS_MAX - imx258->cur_mode->height, 1,
 				vblank_def);
-
-	if (imx258->vblank)
-		imx258->vblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-
+	
 	imx258->hblank = v4l2_ctrl_new_std(
 				ctrl_hdlr, &imx258_ctrl_ops, V4L2_CID_HBLANK,
 				IMX258_PPL_DEFAULT - imx258->cur_mode->width,
@@ -1439,21 +1618,32 @@ static int imx258_init_controls(struct imx258 *imx258)
 				ARRAY_SIZE(imx258_test_pattern_menu) - 1,
 				0, 0, imx258_test_pattern_menu);
 
+	ret = v4l2_fwnode_device_parse(&client->dev, &props);
+	if (ret)
+		goto error;
+	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx258_ctrl_ops,
+					      &props);
+	if (ret)
+		goto error;
+
+	imx258->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
+					  V4L2_CID_HFLIP, 0, 1, 1,
+					  props.rotation == 180 ? 1 : 0);
+	if (imx258->hflip)
+		imx258->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+
+	imx258->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &imx258_ctrl_ops,
+					  V4L2_CID_VFLIP, 0, 1, 1,
+					  props.rotation == 180 ? 1 : 0);
+	if (imx258->vflip)
+		imx258->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+
 	if (ctrl_hdlr->error) {
 		ret = ctrl_hdlr->error;
 		dev_err(&client->dev, "%s control init failed (%d)\n",
 				__func__, ret);
 		goto error;
 	}
-
-	ret = v4l2_fwnode_device_parse(&client->dev, &props);
-	if (ret)
-		goto error;
-
-	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx258_ctrl_ops,
-					      &props);
-	if (ret)
-		goto error;
 
 	imx258->sd.ctrl_handler = ctrl_hdlr;
 
@@ -1615,7 +1805,7 @@ static struct i2c_driver imx258_i2c_driver = {
 		.acpi_match_table = ACPI_PTR(imx258_acpi_ids),
 		.of_match_table	= imx258_dt_ids,
 	},
-	.probe = imx258_probe,
+	.probe_new = imx258_probe,
 	.remove = imx258_remove,
 };
 
