@@ -945,7 +945,7 @@
 	assigned-clock-rates = <19200000 0>;
 
 	wcam: camera@1a {
-		compatible = "sony,imx258";
+		compatible = "sony,imx258-pdaf";
 		reg = <0x1a>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&wcam_rst &wcam_pdn>;
